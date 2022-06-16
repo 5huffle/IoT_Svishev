@@ -1,0 +1,84 @@
+import cv2
+import numpy as np
+import random
+
+from paho.mqtt import client as mqtt_client
+
+broker = 'localhost'
+port = 1883
+topic = "/sun/"
+# generate client ID with pub prefix randomly
+client_id = f'python-mqtt-{random.randint(0, 1000)}'
+
+
+
+def connect_mqtt():
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print("Connected to MQTT Broker!")
+        else:
+            print("Failed to connect, return code %d\n", rc)
+
+    client = mqtt_client.Client(client_id)
+    client.on_connect = on_connect
+    client.connect(broker, port)
+    return client
+
+
+def publish(client, message):
+    msg = f"messages: {message}"
+    result = client.publish(topic, msg)
+    status = result[0]
+    if status == 0:
+        print(f"Send `{msg}` to topic `{topic}`")
+    else:
+        print(f"Failed to send message to topic {topic}")
+
+
+def run():
+    client = connect_mqtt()
+    client.loop_start()
+    video = cv2.VideoCapture("sunset.mp4")
+    flag = 0
+    flag_2 = 1
+    counter = 0
+    client = connect_mqtt()
+    client.loop_start()
+    while True:
+        success, video_rgb = video.read()
+
+        if flag == 0:
+            flag += 1
+            rgbSun = cv2.GaussianBlur(src=video_rgb, ksize=(7, 7), sigmaX=0)
+            hsvSun = cv2.cvtColor(rgbSun, cv2.COLOR_BGR2HSV)
+
+            highArray = np.array([255, 255, 255])
+            lowerArray = np.array([20, 20, 20])
+            sunMask = cv2.inRange(hsvSun, lowerArray, highArray)
+
+            circles = cv2.HoughCircles(sunMask, cv2.HOUGH_GRADIENT, 1, 9999, param1=60, param2=18, minRadius=0,
+                                       maxRadius=33)
+
+            if circles is not None:
+                circles = np.round(circles[0, :]).astype("int")
+                print("Sun locate +- :  " + str(circles))
+
+        if circles is not None:
+
+            for (x, y, r) in circles:
+                cv2.circle(video_rgb, (x, y), r + 20, (0, 255, 255), 3)
+                counter = 0
+            counter += 1
+        if flag_2== 0 and counter > 300 :
+            publish(client, 'Sun is not visible')
+            flag_2 = 1
+        if flag_2==1 and counter == 0:
+            publish(client, 'Sun is visible')
+            flag_2 = 0
+        flag = 0
+        cv2.imshow('Sunspot Identification', video_rgb)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cv2.destroyAllWindows()
+if __name__ == '__main__':
+    run()
